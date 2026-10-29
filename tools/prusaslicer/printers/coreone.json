@@ -1,0 +1,13 @@
+{
+  "name": "Prusa CORE One 0.4 nozzle",
+  "bed": [250, 220],
+  "max_height": 270,
+  "margin": 5,
+  "gap": 6,
+  "presets": {
+    "printer": "Prusa CORE One 0.4 nozzle",
+    "print": "0.15mm BALANCED @COREONE 0.4",
+    "filament": "Prusament PETG @COREONE"
+  },
+  "source": "PrusaSlicer 2.9.5 system presets, physical printer 'core one+'"
+}

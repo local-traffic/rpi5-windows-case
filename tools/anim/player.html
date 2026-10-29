@@ -1,0 +1,437 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Storyboard Player</title>
+<style>
+/* Served by render.mjs. ?render=1 → headless frame capture (viewport = video size, no UI); otherwise preview with a timeline. */
+:root {
+  --accent: #d9631e; --fg: #1d2329; --muted: #5d6873; --chrome: #15191d; --chrome-fg: #e3e7eb;
+  --sans: "IBM Plex Sans Condensed", "Roboto Condensed", "DejaVu Sans Condensed", "Arial Narrow", sans-serif;
+  --mono: "IBM Plex Mono", "DejaVu Sans Mono", monospace;
+}
+html, body { margin: 0; height: 100%; background: var(--chrome); color: var(--chrome-fg); font-family: var(--sans); overflow: hidden; }
+body { display: grid; grid-template-rows: minmax(0, 1fr) auto; }
+#wrap { display: grid; place-items: center; min-height: 0; padding: 12px; }
+body.render #wrap { padding: 0; }
+#stage { position: relative; container-type: size; overflow: hidden; background: var(--bg, #dfe3e7); }
+#stage canvas { display: block; width: 100%; height: 100%; }
+#labels, #caption, #card { position: absolute; pointer-events: none; }
+#labels { inset: 0; }
+.label {
+  position: absolute; transform: translate(-50%, -100%); white-space: nowrap;
+  font: 600 2.6cqh/1 var(--sans); color: #fff; background: var(--accent);
+  padding: .45em .7em; border-radius: .35em; margin-top: -1.4cqh;
+  box-shadow: 0 .3cqh 1.2cqh rgb(0 0 0 / .25);
+}
+.label::after {
+  content: ""; position: absolute; left: 50%; top: 100%; width: .9cqh; height: 1.4cqh;
+  background: var(--accent); transform: translateX(-50%);
+}
+#caption { left: 3cqh; bottom: 3cqh; max-width: 70cqw; color: var(--fg); padding: 1.6cqh 2.2cqh;
+  background: color-mix(in srgb, var(--bg, #dfe3e7) 85%, transparent); border-radius: .8cqh; backdrop-filter: blur(.6cqh); }
+#caption .step { font: 500 2.1cqh/1 var(--mono); color: var(--accent); letter-spacing: .06em; text-transform: uppercase; }
+#caption .title { font: 600 4.6cqh/1.1 var(--sans); margin-top: .9cqh; }
+#caption .text { font: 400 2.7cqh/1.3 var(--sans); color: var(--muted); margin-top: .8cqh; }
+#card { inset: 0; display: grid; place-content: center; text-align: center; color: var(--fg);
+  background: color-mix(in srgb, var(--bg, #dfe3e7) 82%, transparent); }
+#card .big { font: 600 8cqh/1.05 var(--sans); }
+#card .sub { font: 400 3.2cqh/1.3 var(--sans); color: var(--muted); margin-top: 1.6cqh; }
+#err { position: absolute; inset: 0; display: grid; place-items: center; font: 14px var(--mono); color: #f66; white-space: pre-wrap; padding: 24px; }
+#err:empty { display: none; }
+#bar { display: flex; gap: 12px; align-items: center; padding: 10px 16px; font: 13px var(--mono); border-top: 1px solid #2c343c; }
+body.render #bar { display: none; }
+#bar button { all: unset; cursor: pointer; padding: 6px 12px; border-radius: 4px; background: var(--accent); color: #fff; }
+#bar button.ghost { background: transparent; color: var(--chrome-fg); outline: 1px solid #3b444d; }
+#scrub { flex: 1; min-width: 0; accent-color: var(--accent); }
+#info { color: #8e99a4; min-width: 26ch; }
+#camOut { position: absolute; left: 12px; top: 12px; font: 12px var(--mono); background: rgb(0 0 0 / .7); color: #fff; padding: 8px 10px; border-radius: 4px; white-space: pre; user-select: all; }
+#camOut:empty { display: none; }
+</style>
+</head>
+<body>
+<div id="wrap">
+  <div id="stage">
+    <div id="labels"></div>
+    <div id="caption"><div class="step"></div><div class="title"></div><div class="text"></div></div>
+    <div id="card"><div class="big"></div><div class="sub"></div></div>
+    <div id="camOut"></div>
+    <div id="err"></div>
+  </div>
+</div>
+<div id="bar">
+  <button id="play" type="button">Play</button>
+  <input id="scrub" type="range" min="0" max="1" step="0.001" value="0">
+  <span id="info"></span>
+  <button id="free" class="ghost" type="button" title="Orbit freely and copy the camera values (F)">Free camera</button>
+  <button id="reload" class="ghost" type="button" title="Re-read the storyboard (R)">Reload</button>
+</div>
+<script src="three.min.js"></script>
+<script src="OrbitControls.js"></script>
+<script>
+"use strict";
+const RENDER = new URLSearchParams(location.search).has("render");
+if (RENDER) document.body.classList.add("render");
+const $ = id => document.getElementById(id);
+const arr = v => v === undefined ? [] : Array.isArray(v) ? v : [v];
+const clamp01 = x => Math.min(1, Math.max(0, x));
+const EASE = {
+  linear: x => x,
+  in: x => x * x * x,
+  out: x => 1 - Math.pow(1 - x, 3),
+  inOut: x => x < 0.5 ? 4 * x * x * x : 1 - Math.pow(-2 * x + 2, 3) / 2,
+  back: x => { const c = 1.70158, d = c + 1; return 1 + d * Math.pow(x - 1, 3) + c * Math.pow(x - 1, 2); },  // overshoot, good for clicks
+  snap: x => x < 1 ? 0 : 1,
+};
+const lerp = (a, b, k) => Array.isArray(a) ? a.map((v, i) => v + (b[i] - v) * k) : a + (b - a) * k;
+
+let SB, scene, camera, renderer, controls, nodes = {}, segs = {}, flashes = [], labels = [], scenes = [], ribbons = [], DURATION = 0;
+let freeCam = false;
+
+// ---------- STL
+function parseSTL(buf) {
+  const dv = new DataView(buf);
+  const n = buf.byteLength >= 84 ? dv.getUint32(80, true) : 0;
+  let pos;
+  if (84 + 50 * n === buf.byteLength) {
+    pos = new Float32Array(n * 9);
+    for (let i = 0; i < n; i++) for (let j = 0; j < 9; j++) pos[i * 9 + j] = dv.getFloat32(84 + 50 * i + 12 + 4 * j, true);
+  } else {
+    const txt = new TextDecoder().decode(buf), out = [];
+    const re = /vertex\s+(\S+)\s+(\S+)\s+(\S+)/g; let m;
+    while ((m = re.exec(txt))) out.push(+m[1], +m[2], +m[3]);
+    pos = new Float32Array(out);
+  }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute("position", new THREE.BufferAttribute(pos, 3));
+  g.computeVertexNormals();
+  g.computeBoundingBox();
+  return g;
+}
+
+// ---------- ribbon (flat cable): a strip through points that each follow a node, rebuilt every frame
+// def.ribbon = [{at: [x,y,z], node}], def.width, def.side = width direction in assembled coords (default +Y)
+const RIBBON_STEPS = 10;   // samples between two control points
+function ribbonGeometry(def) {
+  const n = (def.ribbon.length - 1) * RIBBON_STEPS + 1, g = new THREE.BufferGeometry(), idx = [];
+  g.setAttribute("position", new THREE.BufferAttribute(new Float32Array(n * 6), 3));
+  for (let i = 0; i < n - 1; i++) { const a = 2 * i; idx.push(a, a + 1, a + 2, a + 1, a + 3, a + 2); }
+  g.setIndex(idx);
+  g.computeBoundingBox();
+  return g;
+}
+function updateRibbons() {
+  for (const r of ribbons) {
+    const def = r.def, side0 = new THREE.Vector3(...(def.side || [0, 1, 0])), half = (def.width || 10) / 2;
+    const pts = [], sides = [];
+    for (const p of def.ribbon) {
+      const m = nodes[p.node].inner.matrixWorld;
+      pts.push(new THREE.Vector3(...p.at).applyMatrix4(m));
+      sides.push(side0.clone().transformDirection(m));
+    }
+    const curve = new THREE.CatmullRomCurve3(pts, false, "centripetal");
+    const pos = r.inner.children[0].geometry.attributes.position, steps = (pts.length - 1) * RIBBON_STEPS;
+    const toLocal = r.inner.matrixWorld.clone().invert(), p = new THREE.Vector3(), s = new THREE.Vector3();
+    for (let i = 0; i <= steps; i++) {
+      const u = i / steps, k = u * (pts.length - 1), j = Math.min(Math.floor(k), pts.length - 2);
+      curve.getPoint(u, p);
+      s.lerpVectors(sides[j], sides[j + 1], k - j).normalize().multiplyScalar(half);
+      pos.setXYZ(2 * i, ...p.clone().add(s).applyMatrix4(toLocal).toArray());
+      pos.setXYZ(2 * i + 1, ...p.clone().sub(s).applyMatrix4(toLocal).toArray());
+    }
+    pos.needsUpdate = true;
+    r.inner.children[0].geometry.computeVertexNormals();
+  }
+}
+
+// ---------- scene graph: every part/group is a node = outer (pivot + move, rotation) > inner (−pivot) > children in assembled coords
+function makeNode(name, def) {
+  const outer = new THREE.Group(), inner = new THREE.Group();
+  outer.add(inner);
+  const node = { name, def, outer, inner, pivot: new THREE.Vector3(...(def.pivot || [0, 0, 0])), mats: [], baseOpacity: def.opacity ?? 1 };
+  inner.position.copy(node.pivot).negate();
+  nodes[name] = node;
+  return node;
+}
+
+async function build() {
+  const r = await fetch("storyboard.json", { cache: "no-store" });
+  if (!r.ok) throw new Error("storyboard: " + (await r.text()));
+  SB = await r.json();
+  const V = SB.video || {};
+  const W = V.width || 1920, H = V.height || 1080;
+  document.documentElement.style.setProperty("--bg", V.background || "#dfe3e7");
+  if (V.accent) document.documentElement.style.setProperty("--accent", V.accent);
+
+  scene = new THREE.Scene();
+  scene.background = new THREE.Color(V.background || "#dfe3e7");
+  scene.add(new THREE.HemisphereLight(0xffffff, 0x50555a, 0.75));
+  const key = new THREE.DirectionalLight(0xffffff, 0.8); key.position.set(200, 300, 400); scene.add(key);
+  const fill = new THREE.DirectionalLight(0xffffff, 0.3); fill.position.set(-300, -100, -200); scene.add(fill);
+  // lights follow the camera a bit so the lit side stays visible while orbiting
+  camera = new THREE.PerspectiveCamera(32, W / H, 1, 10000);
+  camera.add(new THREE.PointLight(0xffffff, 0.25)); scene.add(camera);
+
+  renderer = new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffer: true });
+  renderer.setPixelRatio(RENDER ? devicePixelRatio : Math.min(devicePixelRatio, 2));
+  $("stage").prepend(renderer.domElement);
+  const edgeColor = new THREE.Color(V.edgeColor || "#22272c");
+
+  // groups first (no geometry), then parts; parents are attached afterwards so order in the file doesn't matter
+  for (const [name, def] of Object.entries(SB.groups || {})) makeNode(name, def);
+  await Promise.all(Object.entries(SB.parts || {}).map(async ([name, def]) => {
+    let g;
+    if (def.plane || def.box) {
+      g = def.plane ? new THREE.PlaneGeometry(def.plane[0], def.plane[1]) : new THREE.BoxGeometry(...def.box);
+      g.translate(...(def.at || [0, 0, 0]));
+      g.computeBoundingBox();
+    } else if (def.ribbon) {
+      g = ribbonGeometry(def);
+      def = { ...def, pivot: [0, 0, 0], parent: undefined, edges: false };
+    } else {
+      const res = await fetch("mesh/" + encodeURIComponent(name));
+      if (!res.ok) throw new Error(`part ${name}: ${await res.text()}`);
+      g = parseSTL(await res.arrayBuffer());
+    }
+    if (!def.pivot) def = { ...def, pivot: g.boundingBox.getCenter(new THREE.Vector3()).toArray() };
+    const node = makeNode(name, def);
+    const mat = new THREE.MeshStandardMaterial({ color: def.color || "#999999", roughness: def.roughness ?? 0.62, metalness: def.metalness ?? 0.02, side: THREE.DoubleSide });
+    const mesh = new THREE.Mesh(g, mat);
+    node.inner.add(mesh); node.mats.push({ m: mat, k: 1 });
+    if (def.ribbon) { mesh.frustumCulled = false; ribbons.push(node); }
+    if (def.edges !== false && !def.plane) {
+      const em = new THREE.LineBasicMaterial({ color: edgeColor, transparent: true });
+      mesh.add(new THREE.LineSegments(new THREE.EdgesGeometry(g, def.edgeAngle || 28), em));
+      node.mats.push({ m: em, k: V.edgeOpacity ?? 0.35, line: true });
+    }
+    if (def.plane) { mat.transparent = true; mat.depthWrite = false; mat.roughness = 0.1; }
+  }));
+  for (const r of ribbons) for (const p of r.def.ribbon)
+    if (!nodes[p.node]) throw new Error(`${r.name}: unknown ribbon node "${p.node}"`);
+  for (const n of Object.values(nodes)) {
+    const p = n.def.parent;
+    if (p && !nodes[p]) throw new Error(`${n.name}: unknown parent "${p}"`);
+    (p ? nodes[p].inner : scene).add(n.outer);
+  }
+
+  // ---------- timeline
+  const initial = SB.initial || {};
+  const cam0 = SB.camera || {};
+  const start = { "camera.from": cam0.from || [-270, 165, 350], "camera.to": cam0.to || [0, 0, 0], "camera.fov": cam0.fov || 32, "camera.orbit": cam0.orbit || 0 };
+  for (const n of Object.keys(nodes)) {
+    const i = initial[n] || {};
+    start[n + ".move"] = i.move || [0, 0, 0];
+    start[n + ".rotate"] = i.rotate || [0, 0, 0];
+    start[n + ".opacity"] = i.opacity ?? 1;
+    start[n + ".glow"] = i.glow ?? 0;
+  }
+  segs = {}; flashes = []; labels = []; scenes = [];
+  const add = (key, t0, t1, to, ease) => {
+    if (!(key in start)) throw new Error(`unknown target "${key.split(".")[0]}"`);
+    (segs[key] ||= []).push({ t0, t1: Math.max(t0, t1), to, ease: EASE[ease || "inOut"] || EASE.inOut });
+  };
+  let t = 0;
+  for (const s of SB.scenes || []) {
+    const d = s.duration ?? 2;
+    const sc = { ...s, t0: t, t1: t + d };
+    scenes.push(sc);
+    for (const a of arr(s.actions)) {
+      const a0 = t + (a.start ?? 0), a1 = t + (a.end ?? d);
+      for (const n of arr(a.node)) {
+        for (const p of ["move", "rotate", "opacity", "glow"]) if (a[p] !== undefined) add(`${n}.${p}`, a0, a1, a[p], a.ease);
+        if (a.flash) flashes.push({ node: n, t0: a0, t1: a1, k: a.flash === true ? 1 : a.flash, n: a.times || 1 });
+      }
+      if (a.label) labels.push({ text: a.label, at: a.at || [0, 0, 0], node: arr(a.node)[0], t0: a0, t1: a1 });
+    }
+    for (const c of arr(s.camera)) {
+      const c0 = t + (c.start ?? 0), c1 = t + (c.end ?? d);
+      for (const p of ["from", "to", "fov", "orbit"]) if (c[p] !== undefined) add("camera." + p, c0, c1, c[p], c.ease);
+    }
+    t += d;
+  }
+  DURATION = t;
+  for (const [k, list] of Object.entries(segs)) {
+    list.sort((a, b) => a.t0 - b.t0);
+    let v = start[k];
+    for (const sg of list) { sg.from = v; v = sg.to; }
+    list.start = start[k];
+  }
+  for (const k of Object.keys(start)) if (!segs[k]) segs[k] = Object.assign([], { start: start[k] });
+
+  for (const l of labels) {
+    l.el = document.createElement("div"); l.el.className = "label"; l.el.textContent = l.text;
+    $("labels").appendChild(l.el);
+  }
+  // number the scenes that have a title (cards don't count)
+  // (a scene with its own "step" text keeps it and is not counted)
+  const numbered = scenes.filter(s => s.title && s.step === undefined && V.numberSteps !== false);
+  numbered.forEach((s, i) => { s.stepLabel = `Step ${i + 1} / ${numbered.length}`; });
+  for (const s of scenes) if (s.step !== undefined) s.stepLabel = s.step;
+
+  sizeStage(W, H);
+  return { W, H };
+}
+
+function val(key, t) {
+  const list = segs[key];
+  let v = list.start;
+  for (const s of list) {
+    if (t >= s.t1) v = s.to;
+    else if (t > s.t0) { v = lerp(s.from, s.to, s.ease(clamp01((t - s.t0) / (s.t1 - s.t0)))); break; }
+    else break;
+  }
+  return v;
+}
+
+function fade(t, t0, t1, f = 0.25) {
+  if (t < t0 || t > t1) return 0;
+  return Math.min(1, (t - t0) / f, (t1 - t) / f);
+}
+
+const D2R = Math.PI / 180;
+function pose(t) {
+  for (const n of Object.values(nodes)) {
+    const m = val(n.name + ".move", t), r = val(n.name + ".rotate", t);
+    n.outer.position.set(n.pivot.x + m[0], n.pivot.y + m[1], n.pivot.z + m[2]);
+    n.outer.rotation.set(r[0] * D2R, r[1] * D2R, r[2] * D2R);
+    n.opacity = val(n.name + ".opacity", t);
+    n.glow = val(n.name + ".glow", t);
+  }
+  for (const f of flashes) if (t > f.t0 && t < f.t1) {
+    const p = (t - f.t0) / (f.t1 - f.t0);
+    nodes[f.node].glow = Math.max(nodes[f.node].glow, f.k * Math.abs(Math.sin(Math.PI * p * f.n)));
+  }
+  // opacity multiplies down the hierarchy, glow inherits too
+  const accent = new THREE.Color(getComputedStyle(document.documentElement).getPropertyValue("--accent").trim());
+  const eff = n => {
+    if (n.eff !== undefined) return n.eff;
+    const p = n.def.parent ? eff(nodes[n.def.parent]) : { o: 1, g: 0 };
+    return (n.eff = { o: p.o * n.opacity, g: Math.max(p.g, n.glow) });
+  };
+  for (const n of Object.values(nodes)) n.eff = undefined;
+  for (const n of Object.values(nodes)) {
+    const e = eff(n);
+    n.outer.visible = n.opacity > 0.003;
+    for (const { m, k, line } of n.mats) {
+      const o = e.o * n.baseOpacity * k;
+      m.opacity = o;
+      if (!line) {
+        const tr = o < 0.999 || n.def.plane;
+        if (m.transparent !== tr) { m.transparent = tr; m.needsUpdate = true; }
+        m.depthWrite = !n.def.plane && o > 0.5;
+        m.emissive.copy(accent).multiplyScalar(0.55 * e.g);
+      }
+    }
+  }
+
+  if (!freeCam) {
+    const from = new THREE.Vector3(...val("camera.from", t)), to = new THREE.Vector3(...val("camera.to", t));
+    const orbit = val("camera.orbit", t) * D2R;
+    from.sub(to).applyAxisAngle(new THREE.Vector3(0, 1, 0), orbit).add(to);
+    camera.position.copy(from); camera.up.set(0, 1, 0); camera.lookAt(to);
+    camera.fov = val("camera.fov", t); camera.updateProjectionMatrix();
+  }
+  scene.updateMatrixWorld(true);
+  updateRibbons();
+
+  // overlays
+  const st = $("stage"), w = st.clientWidth, h = st.clientHeight;
+  for (const l of labels) {
+    const a = fade(t, l.t0, l.t1, 0.2);
+    l.el.style.opacity = a;
+    if (!a) continue;
+    const p = new THREE.Vector3(...l.at);
+    if (l.node) p.applyMatrix4(nodes[l.node].inner.matrixWorld);
+    p.project(camera);
+    l.el.style.left = ((p.x + 1) / 2 * w) + "px";
+    l.el.style.top = ((1 - p.y) / 2 * h) + "px";
+    l.el.style.scale = 0.85 + 0.15 * EASE.back(a);
+  }
+  const i = scenes.findIndex(s => t >= s.t0 && t < s.t1);
+  const s = scenes[i === -1 ? scenes.length - 1 : i];
+  const cap = $("caption"), card = $("card");
+  if (s) {
+    // keep a caption steady across consecutive scenes with the same title
+    let c0 = s.t0, c1 = s.t1, j = scenes.indexOf(s);
+    for (let k = j - 1; k >= 0 && scenes[k].title === s.title; k--) c0 = scenes[k].t0;
+    for (let k = j + 1; k < scenes.length && scenes[k].title === s.title; k++) c1 = scenes[k].t1;
+    const lastScene = j === scenes.length - 1;
+    cap.style.opacity = s.title ? fade(t, c0, lastScene ? Infinity : c1, 0.3) : 0;
+    cap.querySelector(".step").textContent = s.stepLabel || "";
+    cap.querySelector(".title").textContent = s.title || "";
+    cap.querySelector(".text").textContent = s.text || "";
+    card.style.opacity = s.card ? fade(t, s.t0, s.t1, 0.4) : 0;
+    card.querySelector(".big").textContent = s.card || "";
+    card.querySelector(".sub").textContent = s.cardText || "";
+  }
+  renderer.render(scene, camera);
+  return s;
+}
+
+function sizeStage(W, H) {
+  const st = $("stage");
+  if (RENDER) { st.style.width = W + "px"; st.style.height = H + "px"; }
+  else {
+    const wr = $("wrap").getBoundingClientRect();
+    const k = Math.min((wr.width - 24) / W, (wr.height - 24) / H);
+    st.style.width = Math.floor(W * k) + "px"; st.style.height = Math.floor(H * k) + "px";
+  }
+  renderer.setSize(st.clientWidth, st.clientHeight, false);
+  camera.aspect = W / H; camera.updateProjectionMatrix();
+}
+
+// ---------- entry points
+window.__setTime = t => { pose(t); return true; };
+
+(async () => {
+  try {
+    const { W, H } = await build();
+    window.__duration = DURATION;
+    if (RENDER) { pose(0); window.__ready = true; return; }
+    preview(W, H);
+  } catch (e) {
+    $("err").textContent = String(e.stack || e);
+    window.__error = String(e.message || e);
+  }
+})();
+
+function preview(W, H) {
+  let T = +(sessionStorage.getItem("t") || 0), playing = false, last = 0;
+  const scrub = $("scrub"), play = $("play"), info = $("info");
+  scrub.max = DURATION;
+  addEventListener("resize", () => sizeStage(W, H));
+  controls = new THREE.OrbitControls(camera, renderer.domElement);
+  controls.enabled = false;
+  const setFree = on => {
+    freeCam = on; controls.enabled = on;
+    $("free").textContent = on ? "Storyboard camera" : "Free camera";
+    if (on) controls.target.set(...val("camera.to", T));
+  };
+  $("free").onclick = () => setFree(!freeCam);
+  $("reload").onclick = () => { sessionStorage.setItem("t", T); location.reload(); };
+  play.onclick = () => { if (T >= DURATION) T = 0; playing = !playing; };
+  scrub.oninput = () => { T = +scrub.value; playing = false; };
+  addEventListener("keydown", e => {
+    if (e.code === "Space") { e.preventDefault(); play.click(); }
+    if (e.key === "f") $("free").click();
+    if (e.key === "r") $("reload").click();
+    if (e.key === "ArrowRight") { T = Math.min(DURATION, T + 1 / 30); playing = false; }
+    if (e.key === "ArrowLeft") { T = Math.max(0, T - 1 / 30); playing = false; }
+  });
+  const r = v => v.toArray().map(x => Math.round(x));
+  function frame(now) {
+    const dt = Math.min(0.1, (now - last) / 1000); last = now;
+    if (playing) { T += dt; if (T >= DURATION) { T = DURATION; playing = false; } }
+    const s = pose(T);
+    scrub.value = T; play.textContent = playing ? "Pause" : "Play";
+    info.textContent = `${T.toFixed(2)} / ${DURATION.toFixed(2)} s · scene ${scenes.indexOf(s) + 1}`;
+    if (freeCam) { controls.update(); $("camOut").textContent = `"camera": {"from": ${JSON.stringify(r(camera.position))}, "to": ${JSON.stringify(r(controls.target))}}`; }
+    else $("camOut").textContent = "";
+    requestAnimationFrame(frame);
+  }
+  requestAnimationFrame(t => { last = t; frame(t); });
+}
+</script>
+</body>
+</html>

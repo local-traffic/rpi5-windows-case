@@ -1,0 +1,97 @@
+// Short looping "what is it" clip, no text, for the top of the README.  Render: node tools/anim/render.mjs anim/purpose.json
+// then tools/anim/make-gif.sh anim/purpose.webm anim/purpose.gif.  Coordinates = SolidCraft model, mm, assembled position.
+{
+  "video": { "width": 1280, "height": 720, "fps": 30, "out": "purpose.webm", "background": "#dfe3e7", "numberSteps": false },
+  "meshDir": "../stl",
+
+  "groups": {
+    "unit":   {},
+    "cam":    { "parent": "unit", "pivot": [-53.5, -24, 17.2] },
+    "hat":    { "parent": "unit" },
+    // camera end of the cable: plugged into the housing; in the exploded view it moves back by the camera's own move,
+    // so the cable stays with the Pi and slides out of the housing slot
+    "ffc_end": { "parent": "cam" }
+  },
+  "parts": {
+    // the window: glass in a white frame (16 mm bars, 50 mm deep toward the street) with a sill into the room
+    "glass":   { "plane": [240, 200], "at": [-30, 10, -12.01], "color": "#8fbbd6", "opacity": 0.35 },
+    "frame_l": { "box": [16, 232, 50],  "at": [-158, 10, -30], "color": "#f2f0ea" },
+    "frame_r": { "box": [16, 232, 50],  "at": [98, 10, -30],   "color": "#f2f0ea" },
+    "frame_t": { "box": [240, 16, 50],  "at": [-30, 118, -30], "color": "#f2f0ea" },
+    "frame_b": { "box": [240, 16, 50],  "at": [-30, -98, -30], "color": "#f2f0ea" },
+    "sill":    { "box": [290, 4, 70],   "at": [-30, -92, 30],  "color": "#e6e1d6" },
+    "pad":     { "stl": "window_pad.stl",  "color": "#3f86c6" },
+    "case":    { "stl": "case.stl",    "color": "#d9631e", "parent": "unit" },
+    "pi":      { "stl": "external/pi.stl", "color": "#2f7d4f", "parent": "unit", "edges": false },
+    // Raspberry Pi AI HAT+ (Hailo-8), drawn as boxes: 65 × 56.5 board on the Pi's holes, ~11 mm above the Pi PCB (z 8.4)
+    "hat_pcb":    { "box": [65, 56.5, 1.6], "at": [-8, 0, 20.2],  "color": "#1f5e3a", "parent": "hat" },
+    "hat_chip":   { "box": [16, 16, 1.8],   "at": [-8, -4, 21.9], "color": "#22262a", "parent": "hat" },
+    "hat_header": { "box": [51, 5, 8.5],    "at": [-8, 24.5, 15.15], "color": "#2b2b2b", "parent": "hat" },
+    "hat_sp1":    { "box": [3, 3, 11],      "at": [-37, -24.5, 13.9], "color": "#c9b26b", "parent": "hat" },
+    "hat_sp2":    { "box": [3, 3, 11],      "at": [21, -24.5, 13.9],  "color": "#c9b26b", "parent": "hat" },
+    "hat_sp3":    { "box": [3, 3, 11],      "at": [-37, 24.5, 13.9],  "color": "#c9b26b", "parent": "hat" },
+    "hat_sp4":    { "box": [3, 3, 11],      "at": [21, 24.5, 13.9],   "color": "#c9b26b", "parent": "hat" },
+    "cover":   { "stl": "cover.stl",   "color": "#8d99a6", "parent": "unit", "opacity": 0.72 },
+    "conn":    { "stl": "connector.stl",   "color": "#3f86c6", "parent": "unit" },
+    "housing": { "stl": "cam_housing.stl", "color": "#3a4148", "parent": "cam" },
+    "lid":     { "stl": "cam_lid.stl",     "color": "#5b646d", "parent": "cam" },
+    "camera":  { "stl": "external/camera3.stl", "color": "#2f7d4f", "parent": "cam", "edges": false },
+    // flat camera cable, 12 mm wide, one continuous strip: Pi CAM/DISP connector (by the micro-HDMI ports) → along the
+    // board under the HAT → up the microSD wall → over the cable notch → along the housing back → into its FFC slot.
+    // Points on the Pi follow the Pi; points on the housing follow "ffc_end" (inside "cam"), so it bends when aiming.
+    "ffc": { "ribbon": [
+        { "at": [5, -16.8, 13.5],      "node": "pi" },
+        { "at": [-38, -16.8, 13.5],    "node": "pi" },
+        { "at": [-42.8, -20, 18],      "node": "pi" },
+        { "at": [-42.8, -23, 25],      "node": "pi" },
+        { "at": [-45, -23, 27.6],      "node": "pi" },
+        { "at": [-50, -23, 27.6],      "node": "pi" },
+        { "at": [-56, -23, 23.3],      "node": "ffc_end" },
+        { "at": [-80, -23, 23.2],      "node": "ffc_end" },
+        { "at": [-97, -23, 23.2],      "node": "ffc_end" },
+        { "at": [-98.1, -23, 21.5],    "node": "ffc_end" },
+        { "at": [-98.1, -23, 19],      "node": "ffc_end" }
+      ], "width": 12, "color": "#e9dfc0" }
+  },
+
+  "camera": { "from": [-260, 120, 300], "to": [-30, 5, 10], "fov": 34 },
+
+  "scenes": [
+    { "duration": 3,
+      "camera": { "orbit": 25, "ease": "inOut" } },
+
+    { "duration": 4,
+      "camera": { "orbit": 0, "end": 0.8 },
+      "actions": [
+        { "node": "cam", "rotate": [25, 0, 0],   "start": 0.4, "end": 1.2 },
+        { "node": "cam", "rotate": [-20, 25, 0], "start": 1.2, "end": 2.2 },
+        { "node": "cam", "rotate": [0, -25, 0],  "start": 2.2, "end": 3.2 },
+        { "node": "cam", "rotate": [0, 0, 0],    "start": 3.2, "end": 4.0 }
+      ] },
+
+    { "duration": 3.5,
+      "actions": [
+        { "node": "unit", "move": [0, 70, 0], "start": 0.2, "end": 1.4 },
+        { "node": "pad", "flash": 0.7, "start": 1.4, "end": 2.0 },
+        { "node": "unit", "move": [0, 0, 0], "start": 2.0, "end": 3.3, "ease": "out" }
+      ] },
+
+    // every part apart at once (the pad stays taped; the cable comes off the camera with the Pi), hold, snap back
+    { "duration": 4.2,
+      "camera": [
+        { "from": [-340, 160, 400], "to": [-30, 30, 40], "start": 0.0, "end": 1.2 },
+        { "from": [-260, 120, 300], "to": [-30, 5, 10], "start": 3.4, "end": 4.2 }
+      ],
+      "actions": [
+        { "node": "unit",  "move": [0, 40, 0],    "start": 0.2, "end": 1.2, "ease": "out" },
+        { "node": "pi",    "move": [0, 0, 40],    "start": 0.2, "end": 1.2, "ease": "out" },
+        { "node": "hat",   "move": [0, 0, 75],    "start": 0.2, "end": 1.2, "ease": "out" },
+        { "node": "cover", "move": [0, 0, 115],   "start": 0.2, "end": 1.2, "ease": "out" },
+        { "node": "conn",  "move": [0, 0, -30],   "start": 0.2, "end": 1.2, "ease": "out" },
+        { "node": "cam",   "move": [-20, 0, 36],  "start": 0.2, "end": 1.2, "ease": "out" },
+        { "node": "lid",   "move": [0, 0, -24],   "start": 0.2, "end": 1.2, "ease": "out" },
+        { "node": "ffc_end", "move": [20, 0, 4],  "start": 0.2, "end": 1.2, "ease": "out" },
+        { "node": ["unit", "pi", "hat", "cover", "conn", "cam", "lid", "ffc_end"], "move": [0, 0, 0], "start": 3.4, "end": 4.2 }
+      ] }
+  ]
+}

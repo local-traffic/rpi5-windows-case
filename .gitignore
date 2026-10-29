@@ -1,0 +1,25 @@
+# generated print plates (rebuild with tools/prusaslicer/plate.py or the prusaslicer MCP `arrange`)
+stl/plates/*
+!stl/plates/README.md
+*.gcode
+*.bgcode
+
+# SolidCraft working snapshots — git history replaces them
+*.solidcraft.before-*
+*.solidcraft.bak
+.~*.lock
+
+# official Raspberry Pi reference downloads (see CLAUDE.md, "Reference models")
+ref/
+
+# animation scratch output
+anim/still.png
+anim/purpose.webm
+
+# tools runtime state
+__pycache__/
+tools/prusaslicer/.prusaslicer-gui.log
+tools/prusaslicer/.bridge-token
+
+# local Claude Code settings
+.claude/settings.local.json

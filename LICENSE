@@ -1,0 +1,17 @@
+Copyright (c) 2026 Vaclav Opekar
+
+The 3D design in this repository (the SolidCraft model, STL/STEP exports, plate plans, assembly
+animation and the documentation) is licensed under the Creative Commons Attribution-ShareAlike 4.0
+International License (CC BY-SA 4.0): https://creativecommons.org/licenses/by-sa/4.0/legalcode
+
+Exceptions:
+  - tools/            MIT License, (c) 2026 Vaclav Opekar
+  - tools/anim/vendor three.js and OrbitControls, MIT License (c) three.js authors
+  - The Raspberry Pi 5 and Camera Module 3 reference models embedded in
+    rpi5_window_cam.solidcraft (and the meshes in stl/external/) are
+    (c) Raspberry Pi Ltd, redistributed under their design-file terms
+    (https://www.raspberrypi.com/licensing/): "Permission to use, copy,
+    modify, and/or distribute these designs for any purpose with or without
+    fee is hereby granted. THE DESIGNS ARE PROVIDED "AS IS" ..."
+    This project is not affiliated with Raspberry Pi Ltd.
+

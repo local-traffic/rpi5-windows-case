@@ -1,0 +1,23 @@
+{
+  "mcpServers": {
+    "solidcraft": {
+      "type": "stdio",
+      "command": "solidcraft-cli",
+      "args": [
+        "mcp",
+        "--connect",
+        "127.0.0.1:7878"
+      ]
+    },
+    "prusaslicer": {
+      "type": "stdio",
+      "command": "python3",
+      "args": [
+        "tools/prusaslicer/mcp.py"
+      ],
+      "env": {
+        "PRUSASLICER_CMD": "flatpak run com.prusa3d.PrusaSlicer"
+      }
+    }
+  }
+}

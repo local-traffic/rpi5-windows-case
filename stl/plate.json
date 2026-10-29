@@ -1,0 +1,43 @@
+{
+  "printer": "../tools/prusaslicer/printers/coreone.json",
+  "output": "plates/rpi5_window_cam.3mf",
+  "gap": 6,
+  "parts": [
+    {
+      "file": "case.stl",
+      "name": "Case",
+      "down": "-z",
+      "note": "back plate on bed"
+    },
+    {
+      "file": "cover.stl",
+      "name": "Cover",
+      "down": "+z",
+      "note": "outer face on bed"
+    },
+    {
+      "file": "window_pad.stl",
+      "name": "WindowPad",
+      "down": "-z",
+      "note": "tape face on bed, U walls up"
+    },
+    {
+      "file": "connector.stl",
+      "name": "Connector",
+      "down": "-z",
+      "note": "groove face on bed, pegs up"
+    },
+    {
+      "file": "cam_housing.stl",
+      "name": "CamHousing",
+      "down": "+z",
+      "note": "back face (and neck + ball flat) on bed, open side up"
+    },
+    {
+      "file": "cam_lid.stl",
+      "name": "CamLid",
+      "down": "-z",
+      "note": "outside (lens) face on bed"
+    }
+  ]
+}
